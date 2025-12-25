@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MTG Battle Diary: Sideboard Update</title>
+    
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <style>
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-fade-in { animation: fadeIn 0.3s ease-out forwards; }
+        .card-count-badge {
+            text-shadow: 0px 1px 2px rgba(0,0,0,0.8);
+        }
+    </style>
+</head>
+<body class="bg-slate-100 text-slate-800 font-sans pb-40">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        // --- Icon Component ---
+        const Icon = ({ name, size = 18, className = "" }) => {
+            useEffect(() => { lucide.createIcons(); }, [name]); 
+            return <i data-lucide={name} width={size} height={size} className={className}></i>;
+        };
+
+        // --- Helper: Parse Decklist (Simple Map for Diff) ---
+        const parseDeckListForDiff = (text) => {
+            if (!text) return {};
+            const lines = text.split('\n');
+            const deck = {};
+            lines.forEach(line => {
+                const match = line.trim().match(/^(\d+)\s+(.+)$/);
+                if (match) {
+                    let name = match[2].trim().replace(/\s*\(.*?\)\s*\d+$/, ""); 
+                    deck[name] = (deck[name] || 0) + parseInt(match[1], 10);
+                }
+            });
+            return deck;
+        };
+
+        // --- Helper: Parse and Split Main/Side (Bottom 15 Rule) ---
+        const fetchImagesSplitMainSide = async (deckListText) => {
+            // 1. 行ごとの生データを取得（順番保持）
+            const lines = deckListText.split('\n').filter(l => l.trim() !== "");
+            let rawCards = [];
+            lines.forEach(line => {
+                const match = line.trim().match(/^(\d+)\s+(.+)$/);
+                if (match) {
+                    let name = match[2].trim().replace(/\s*\(.*?\)\s*\d+$/, ""); 
+                    let count = parseInt(match[1], 10);
+                    rawCards.push({ name, count });
+                }
+            });
+
+            // 2. 下から数えて15枚をサイドボードとして分離
+            let currentSideCount = 0;
+            let sideList = [];
+            let mainList = [];
+            
+            // 後ろからループ
+            for (let i = rawCards.length - 1; i >= 0; i--) {
+                const card = rawCards[i];
+                if (currentSideCount < 15) {
+                    const spaceInSide = 15 - currentSideCount;
+                    if (card.count <= spaceInSide) {
+                        // 丸ごとサイドへ
+                        sideList.unshift(card);
+                        currentSideCount += card.count;
+                    } else {
+                        // 分割が必要な場合 (例: 4枚中2枚がサイド、2枚がメイン)
+                        const toSide = spaceInSide;
+                        const toMain = card.count - spaceInSide;
+                        sideList.unshift({ name: card.name, count: toSide });
+                        mainList.unshift({ name: card.name, count: toMain });
+                        currentSideCount += toSide;
+                    }
+                } else {
+                    // 残りは全てメイン
+                    mainList.unshift(card);
+                }
+            }
+
+            // 3. 画像URL取得 (ユニークなカード名だけAPIを叩く)
+            const uniqueNames = [...new Set([...mainList, ...sideList].map(c => c.name))];
+            const urlMap = {};
+
+            const promises = uniqueNames.map(async (cardName) => {
+                try {
+                    const res = await fetch(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(cardName)}`);
+                    if (!res.ok) return;
+                    const data = await res.json();
+                    urlMap[cardName] = data.image_uris?.small || data.card_faces?.[0]?.image_uris?.small;
+                } catch { 
+                    urlMap[cardName] = null; 
+                }
+            });
+            await Promise.all(promises);
+
+            // 4. URLを付与して返却
+            const attachUrl = (list) => list.map(c => ({ ...c, url: urlMap[c.name] })).filter(c => c.url);
+            
+            return {
+                main: attachUrl(mainList),
+                side: attachUrl(sideList)
+            };
+        };
+
+
+        // --- Helper: Data Structures ---
+        const createGamesBlock = () => [
+            { id: 1, result: null, onPlay: null, memo: '' },
+            { id: 2, result: null, onPlay: null, memo: '' },
+            { id: 3, result: null, onPlay: null, memo: '' }
+        ];
+
+        const createNewMatchBlock = (id) => ({
+            id: id,
+            opponentDeck: '',
+            games: createGamesBlock()
+        });
+
+        // --- Main App ---
+        const MtgDiaryApp = () => {
+            const [view, setView] = useState('list');
+            const [records, setRecords] = useState([]); 
+            const [decks, setDecks] = useState({});
+            
+            // Form State
+            const initialForm = {
+                date: new Date().toISOString().split('T')[0],
+                location: '', 
+                deckName: '',
+                matches: [ createNewMatchBlock(1) ],
+                deckListText: ''
+            };
+
+            const [formData, setFormData] = useState(initialForm);
+            const [parsedDeckForDiff, setParsedDeckForDiff] = useState({}); // Diff計算用(Map形式)
+            
+            // Image State
+            const [deckImagesData, setDeckImagesData] = useState({ main: [], side: [] });
+            const [deckDiff, setDeckDiff] = useState(null);
+            const [isLoadingImages, setIsLoadingImages] = useState(false);
+
+            // Load Data (Version 8)
+            useEffect(() => {
+                const savedRecords = localStorage.getItem('mtg_records_v8');
+                const savedDecks = localStorage.getItem('mtg_decks_v8');
+                if (savedRecords) setRecords(JSON.parse(savedRecords));
+                if (savedDecks) setDecks(JSON.parse(savedDecks));
+                lucide.createIcons();
+            }, []);
+
+            useEffect(() => { lucide.createIcons(); }, [view, records, deckDiff, formData.matches.length]);
+
+            const saveToStorage = (newRecords, newDecks) => {
+                localStorage.setItem('mtg_records_v8', JSON.stringify(newRecords));
+                localStorage.setItem('mtg_decks_v8', JSON.stringify(newDecks));
+            };
+
+            // Start New Event
+            const startNewEvent = (deckName = '', existingDeckData = null) => {
+                setFormData({
+                    ...initialForm,
+                    deckName: deckName,
+                    deckListText: existingDeckData ? existingDeckData.text : '',
+                    date: new Date().toISOString().split('T')[0]
+                });
+                
+                if (existingDeckData) {
+                    const parsed = parseDeckListForDiff(existingDeckData.text);
+                    setParsedDeckForDiff(parsed);
+                    setDeckDiff(null);
+                } else {
+                    setParsedDeckForDiff({});
+                    setDeckDiff(null);
+                }
+
+                setDeckImagesData({ main: [], side: [] });
+                setView('new');
+            };
+
+            // Deck Text Change -> Calc Diff
+            const handleDeckListChange = (text) => {
+                setFormData(prev => ({ ...prev, deckListText: text }));
+                const currentParsed = parseDeckListForDiff(text);
+                setParsedDeckForDiff(currentParsed);
+
+                if (formData.deckName && decks[formData.deckName]) {
+                    calculateDiff(decks[formData.deckName].parsed, currentParsed);
+                } else {
+                    setDeckDiff(null);
+                }
+            };
+
+            const calculateDiff = (oldDeckParsed, newDeckParsed) => {
+                const diff = { in: [], out: [] };
+                Object.keys(newDeckParsed).forEach(card => {
+                    const diffCount = newDeckParsed[card] - (oldDeckParsed[card] || 0);
+                    if (diffCount > 0) diff.in.push({ name: card, count: diffCount });
+                });
+                Object.keys(oldDeckParsed).forEach(card => {
+                    const diffCount = oldDeckParsed[card] - (newDeckParsed[card] || 0);
+                    if (diffCount > 0) diff.out.push({ name: card, count: diffCount });
+                });
+                setDeckDiff((diff.in.length > 0 || diff.out.length > 0) ? diff : null);
+            };
+
+            // Form Actions
+            const addMatch = () => {
+                setFormData(prev => ({ ...prev, matches: [...prev.matches, createNewMatchBlock(prev.matches.length + 1)] }));
+            };
+
+            const updateMatchInfo = (matchIndex, field, value) => {
+                const newMatches = [...formData.matches];
+                newMatches[matchIndex] = { ...newMatches[matchIndex], [field]: value };
+                setFormData({ ...formData, matches: newMatches });
+            };
+
+            const updateGame = (matchIndex, gameIndex, field, value) => {
+                const newMatches = [...formData.matches];
+                const newGames = [...newMatches[matchIndex].games];
+                newGames[gameIndex] = { ...newGames[gameIndex], [field]: value };
+                newMatches[matchIndex].games = newGames;
+                setFormData({ ...formData, matches: newMatches });
+            };
+
+            const removeLastMatch = () => {
+                if (formData.matches.length > 1) {
+                    setFormData(prev => ({ ...prev, matches: prev.matches.slice(0, -1) }));
+                }
+            };
+
+            // Fetch Images (Split Main/Side)
+            const handleFetchImages = async () => {
+                if (!formData.deckListText) return;
+                setIsLoadingImages(true);
+                const imageData = await fetchImagesSplitMainSide(formData.deckListText);
+                setDeckImagesData(imageData);
+                setIsLoadingImages(false);
+            };
+
+            const handleSave = () => {
+                if (!formData.deckName) {
+                    alert("デッキ名を入力してください");
+                    return;
+                }
+
+                let eventWins = 0, eventLosses = 0, eventDraws = 0;
+                const processedMatches = formData.matches.map(m => {
+                    const gWins = m.games.filter(g => g.result === 'win').length;
+                    const gLosses = m.games.filter(g => g.result === 'loss').length;
+                    let matchResult = 'draw';
+                    if (gWins > gLosses) { matchResult = 'win'; eventWins++; }
+                    else if (gLosses > gWins) { matchResult = 'loss'; eventLosses++; }
+                    else { eventDraws++; }
+                    return { ...m, matchResult, gWins, gLosses };
+                });
+
+                const newRecord = {
+                    id: Date.now(),
+                    date: formData.date,
+                    location: formData.location,
+                    deckName: formData.deckName,
+                    deckListText: formData.deckListText,
+                    matches: processedMatches,
+                    eventWins, eventLosses, eventDraws,
+                    diffSnapshot: deckDiff
+                };
+
+                const updatedRecords = [newRecord, ...records];
+                const updatedDecks = { 
+                    ...decks, 
+                    [formData.deckName]: { 
+                        parsed: parsedDeckForDiff, 
+                        text: formData.deckListText 
+                    } 
+                };
+
+                setRecords(updatedRecords);
+                setDecks(updatedDecks);
+                saveToStorage(updatedRecords, updatedDecks);
+                
+                setView('list');
+                setFormData(initialForm);
+                setDeckDiff(null);
+                setDeckImagesData({ main: [], side: [] });
+            };
+
+            return (
+                <div className="max-w-3xl mx-auto min-h-screen bg-slate-100 shadow-xl overflow-hidden sm:border-x border-slate-200">
+                    <header className="bg-slate-800 text-white p-4 sticky top-0 z-50 shadow-md flex justify-between items-center">
+                        <h1 className="text-lg font-bold flex items-center gap-2">
+                            <Icon name="trophy" className="text-yellow-400" />
+                            MTG Battle Diary
+                        </h1>
+                    </header>
+
+                    <main className="p-4">
+                        {/* === Home (Deck Selector) === */}
+                        {view === 'list' && (
+                            <div className="mb-8">
+                                <h2 className="text-sm font-bold text-slate-500 uppercase mb-3 flex items-center gap-1">
+                                    <Icon name="play-circle" size={16} /> Start New Event
+                                </h2>
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
+                                    {Object.keys(decks).map(dName => (
+                                        <button key={dName} onClick={() => startNewEvent(dName, decks[dName])}
+                                            className="bg-white border border-slate-200 p-3 rounded-xl shadow-sm hover:shadow-md hover:border-blue-300 hover:bg-blue-50 transition text-left group">
+                                            <div className="text-xs text-slate-400 mb-1">Use Deck:</div>
+                                            <div className="font-bold text-slate-800 text-sm truncate group-hover:text-blue-700">{dName}</div>
+                                        </button>
+                                    ))}
+                                    <button onClick={() => startNewEvent()}
+                                        className="bg-slate-200 border border-slate-300 border-dashed p-3 rounded-xl shadow-inner hover:bg-white hover:border-orange-400 hover:text-orange-600 transition flex flex-col items-center justify-center gap-1 text-slate-500">
+                                        <Icon name="plus" size={24} />
+                                        <span className="text-xs font-bold">New Deck</span>
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* === New Entry === */}
+                        {view === 'new' && (
+                            <div className="bg-white rounded-xl shadow-lg p-5 animate-fade-in space-y-6">
+                                <div className="flex justify-between items-center">
+                                    <button onClick={() => setView('list')} className="text-slate-500 text-sm flex items-center gap-1 hover:text-slate-800">
+                                        <Icon name="arrow-left" size={16} /> キャンセル
+                                    </button>
+                                    <h2 className="text-slate-800 font-bold flex items-center gap-2">
+                                        <Icon name="file-edit" size={18} /> イベント記録
+                                    </h2>
+                                </div>
+                                
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-lg border border-slate-200">
+                                    <div className="flex gap-2">
+                                        <div className="w-1/3">
+                                            <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Date</label>
+                                            <input type="date" className="w-full bg-white border rounded p-2 text-sm"
+                                                value={formData.date} onChange={(e) => setFormData({...formData, date: e.target.value})} />
+                                        </div>
+                                        <div className="w-2/3">
+                                            <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Location</label>
+                                            <input type="text" className="w-full bg-white border rounded p-2 text-sm" placeholder="場所..."
+                                                value={formData.location} onChange={(e) => setFormData({...formData, location: e.target.value})} />
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">My Deck</label>
+                                        <input type="text" className="w-full bg-white border rounded p-2 text-sm font-bold text-slate-700" placeholder="デッキ名"
+                                            value={formData.deckName} onChange={(e) => setFormData({...formData, deckName: e.target.value})} />
+                                    </div>
+                                </div>
+
+                                <div className="space-y-6">
+                                    {formData.matches.map((match, mIdx) => (
+                                        <div key={match.id} className="border border-slate-300 rounded-xl overflow-hidden shadow-sm relative animate-fade-in bg-white">
+                                            <div className="bg-slate-100 p-3 border-b border-slate-200 flex flex-wrap gap-3 items-center justify-between">
+                                                <div className="flex items-center gap-3 w-full sm:w-auto">
+                                                    <span className="bg-slate-800 text-white text-xs font-bold px-2 py-1 rounded">R{match.id}</span>
+                                                    <input type="text" placeholder="対戦相手のデッキ"
+                                                        className="bg-white border border-slate-300 rounded px-2 py-1 text-sm flex-1 sm:w-64 focus:ring-1 focus:ring-blue-500 outline-none"
+                                                        value={match.opponentDeck} onChange={(e) => updateMatchInfo(mIdx, 'opponentDeck', e.target.value)} />
+                                                </div>
+                                            </div>
+                                            <div className="divide-y divide-slate-100">
+                                                {match.games.map((game, gIdx) => (
+                                                    <div key={game.id} className="p-3 flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+                                                        <div className="flex items-center flex-wrap gap-3 min-w-[240px]">
+                                                            <span className="text-xs font-bold text-slate-400 w-8">G{game.id}</span>
+                                                            <div className="flex bg-slate-100 rounded p-0.5 border border-slate-200">
+                                                                <button onClick={() => updateGame(mIdx, gIdx, 'onPlay', true)} className={`px-2 py-1 text-[10px] font-bold rounded transition ${game.onPlay === true ? 'bg-orange-500 text-white' : 'text-slate-400 hover:text-slate-600'}`}>先</button>
+                                                                <button onClick={() => updateGame(mIdx, gIdx, 'onPlay', false)} className={`px-2 py-1 text-[10px] font-bold rounded transition ${game.onPlay === false ? 'bg-slate-600 text-white' : 'text-slate-400 hover:text-slate-600'}`}>後</button>
+                                                            </div>
+                                                            <div className="flex bg-slate-100 rounded p-0.5 border border-slate-200">
+                                                                {['win', 'loss', 'draw'].map(res => (
+                                                                    <button key={res} onClick={() => updateGame(mIdx, gIdx, 'result', game.result === res ? null : res)}
+                                                                        className={`w-8 h-6 rounded text-[10px] font-bold uppercase transition flex items-center justify-center ${
+                                                                            game.result === res ? (res === 'win' ? 'bg-blue-600 text-white' : res === 'loss' ? 'bg-red-600 text-white' : 'bg-slate-500 text-white') : 'text-slate-400 hover:bg-slate-200'
+                                                                        }`}>{res === 'win' ? 'W' : res === 'loss' ? 'L' : 'D'}</button>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                        <input type="text" className="flex-1 w-full bg-transparent border-b border-transparent hover:border-slate-200 focus:border-blue-400 outline-none text-xs py-1"
+                                                            placeholder="メモ..." maxLength={100} value={game.memo} onChange={(e) => updateGame(mIdx, gIdx, 'memo', e.target.value)} />
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    ))}
+                                    <div className="flex gap-2">
+                                        <button onClick={addMatch} className="flex-1 py-3 bg-white border-2 border-dashed border-slate-300 rounded-xl text-slate-500 font-bold hover:bg-blue-50 hover:text-blue-600 transition flex justify-center items-center gap-2">
+                                            <Icon name="plus-circle" /> 次のラウンドを追加
+                                        </button>
+                                        {formData.matches.length > 1 && (
+                                            <button onClick={removeLastMatch} className="px-4 bg-white border-2 border-dashed border-slate-300 rounded-xl text-red-400 hover:bg-red-50 hover:text-red-600 transition">
+                                                <Icon name="trash-2" />
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Decklist & Preview */}
+                                <div className="space-y-2 pt-6 border-t mt-8">
+                                    <div className="flex justify-between items-center">
+                                        <label className="text-xs font-bold text-slate-500 uppercase">Decklist & Diff</label>
+                                        <button onClick={handleFetchImages} disabled={!formData.deckListText} className="text-xs text-indigo-600 font-bold hover:underline flex items-center gap-1 disabled:opacity-50">
+                                            <Icon name="image" size={12} /> View Images
+                                        </button>
+                                    </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <textarea className="w-full h-24 bg-slate-900 text-green-400 text-xs font-mono p-2 rounded focus:outline-none"
+                                            value={formData.deckListText} onChange={(e) => handleDeckListChange(e.target.value)} placeholder="Paste decklist here..." />
+                                        <div className="h-24 overflow-y-auto border rounded p-2 text-xs bg-white">
+                                            {deckDiff ? (
+                                                <div className="space-y-1">
+                                                    {/* Diff表示に枚数を復活 */}
+                                                    {deckDiff.in.map((c, i) => <div key={i} className="text-green-600 flex items-center gap-1"><Icon name="plus" size={10}/> {c.count} {c.name}</div>)}
+                                                    {deckDiff.out.map((c, i) => <div key={i} className="text-red-500 flex items-center gap-1"><Icon name="minus" size={10}/> {c.count} {c.name}</div>)}
+                                                </div>
+                                            ) : <div className="text-slate-300 italic text-center mt-8">変更なし / 新規</div>}
+                                        </div>
+                                    </div>
+                                    
+                                    {/* Images Split View */}
+                                    {isLoadingImages && <div className="text-xs text-slate-400 text-center py-2">Loading images...</div>}
+                                    {(deckImagesData.main.length > 0 || deckImagesData.side.length > 0) && (
+                                        <div className="bg-slate-100 p-2 rounded border border-slate-200 mt-2">
+                                            {deckImagesData.main.length > 0 && (
+                                                <div className="mb-4">
+                                                    <h4 className="text-[10px] font-bold text-slate-500 uppercase mb-1 border-b border-slate-300 pb-1">Mainboard</h4>
+                                                    <div className="flex overflow-x-auto gap-2 py-1">
+                                                        {deckImagesData.main.map((img, i) => (
+                                                            <div key={i} className="relative flex-shrink-0">
+                                                                <img src={img.url} className="w-16 rounded shadow" />
+                                                                <span className="absolute bottom-0 right-0 bg-black/80 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-tl-lg rounded-br border-t border-l border-white/20 card-count-badge">×{img.count}</span>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
+                                            {deckImagesData.side.length > 0 && (
+                                                <div>
+                                                    <h4 className="text-[10px] font-bold text-slate-500 uppercase mb-1 border-b border-slate-300 pb-1">Sideboard (Bottom 15)</h4>
+                                                    <div className="flex overflow-x-auto gap-2 py-1">
+                                                        {deckImagesData.side.map((img, i) => (
+                                                            <div key={i} className="relative flex-shrink-0">
+                                                                <img src={img.url} className="w-16 rounded shadow" />
+                                                                <span className="absolute bottom-0 right-0 bg-black/80 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-tl-lg rounded-br border-t border-l border-white/20 card-count-badge">×{img.count}</span>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+
+                                <button onClick={handleSave} className="w-full bg-slate-800 text-white py-4 rounded-xl font-bold hover:bg-slate-700 transition flex justify-center items-center gap-2 shadow-xl text-lg">
+                                    <Icon name="save" /> 記録を保存
+                                </button>
+                            </div>
+                        )}
+
+                        {/* === History List === */}
+                        {view === 'list' && (
+                            <div className="space-y-6">
+                                <h2 className="text-sm font-bold text-slate-500 uppercase border-t pt-6 mb-3 flex items-center gap-1">
+                                    <Icon name="history" size={16} /> History
+                                </h2>
+                                {records.length === 0 && <div className="text-center py-12 text-slate-400 bg-white rounded-xl shadow border border-dashed border-slate-300"><p>記録なし</p></div>}
+                                {records.map((record) => <EventCard key={record.id} record={record} />)}
+                            </div>
+                        )}
+                    </main>
+                </div>
+            );
+        };
+
+        const EventCard = ({ record }) => {
+            const [expanded, setExpanded] = useState(false);
+            const [showDeckImages, setShowDeckImages] = useState(false);
+            const [imagesData, setImagesData] = useState({ main: [], side: [] });
+            const [loading, setLoading] = useState(false);
+            
+            const scoreColor = record.eventWins > record.eventLosses ? 'text-blue-600 bg-blue-50 border-blue-100' : 
+                               record.eventLosses > record.eventWins ? 'text-red-600 bg-red-50 border-red-100' : 'text-slate-600 bg-slate-100';
+
+            const toggleDeckImages = async (e) => {
+                e.stopPropagation();
+                if (showDeckImages) { setShowDeckImages(false); return; }
+                setShowDeckImages(true);
+                if (imagesData.main.length === 0 && record.deckListText) {
+                    setLoading(true);
+                    const fetched = await fetchImagesSplitMainSide(record.deckListText);
+                    setImagesData(fetched);
+                    setLoading(false);
+                }
+            };
+
+            const copyDeckList = (e) => {
+                e.stopPropagation();
+                if (record.deckListText) navigator.clipboard.writeText(record.deckListText).then(() => alert("Copied!"));
+            };
+
+            return (
+                <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden hover:shadow-md transition">
+                    <div className="p-4 cursor-pointer bg-gradient-to-r from-white to-slate-50 hover:bg-slate-50 transition" onClick={() => setExpanded(!expanded)}>
+                        <div className="flex justify-between items-start">
+                            <div>
+                                <div className="flex flex-wrap gap-2 text-xs text-slate-500 font-bold mb-1 items-center">
+                                    <span className="flex items-center gap-1"><Icon name="calendar" size={12}/> {record.date}</span>
+                                    {record.location && <span className="flex items-center gap-1 bg-white border px-1.5 rounded"><Icon name="map-pin" size={12}/> {record.location}</span>}
+                                </div>
+                                <h3 className="font-bold text-lg text-slate-800">{record.deckName}</h3>
+                                {record.diffSnapshot && (
+                                    <div className="text-[10px] mt-1 flex flex-wrap gap-2">
+                                        {/* 履歴のDiff表示にも枚数を復活 */}
+                                        {record.diffSnapshot.in.length > 0 && <span className="text-green-600 flex items-center gap-1">In: {record.diffSnapshot.in.map(c => `${c.count} ${c.name}`).join(", ")}</span>}
+                                        {record.diffSnapshot.out.length > 0 && <span className="text-red-500 flex items-center gap-1">Out: {record.diffSnapshot.out.map(c => `${c.count} ${c.name}`).join(", ")}</span>}
+                                    </div>
+                                )}
+                            </div>
+                            <div className="flex flex-col items-end gap-1">
+                                <div className={`text-xl font-black px-3 py-1 rounded border ${scoreColor}`}>
+                                    {record.eventWins}-{record.eventLosses}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {expanded && (
+                        <div className="border-t border-slate-100 animate-fade-in">
+                            <div className="bg-slate-50/50 p-2 space-y-2">
+                                {record.matches.map((match) => (
+                                    <div key={match.id} className="bg-white border border-slate-200 rounded-lg p-3 shadow-sm">
+                                        <div className="flex justify-between items-center mb-2 pb-1 border-b border-slate-100">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-xs font-bold bg-slate-800 text-white px-1.5 py-0.5 rounded">R{match.id}</span>
+                                                <span className="text-sm font-bold text-slate-700">{match.opponentDeck || "Unknown"}</span>
+                                            </div>
+                                            <span className={`text-xs font-bold uppercase ${match.matchResult === 'win' ? 'text-blue-600' : match.matchResult === 'loss' ? 'text-red-600' : 'text-slate-400'}`}>
+                                                {match.matchResult}
+                                            </span>
+                                        </div>
+                                        <div className="space-y-1">
+                                            {match.games.map((g) => {
+                                                if (!g.result && !g.memo && g.onPlay === null) return null;
+                                                return (
+                                                    <div key={g.id} className="flex gap-2 text-xs items-center">
+                                                        {g.onPlay !== null && <span className={`px-1 rounded text-[9px] font-bold ${g.onPlay ? 'bg-orange-100 text-orange-700' : 'bg-slate-200 text-slate-600'}`}>{g.onPlay ? '先' : '後'}</span>}
+                                                        <span className={`font-mono font-bold w-4 text-center ${g.result === 'win' ? 'text-blue-600' : g.result === 'loss' ? 'text-red-600' : 'text-slate-300'}`}>{g.result === 'win' ? 'W' : g.result === 'loss' ? 'L' : '-'}</span>
+                                                        <span className="text-slate-600 flex-1">{g.memo}</span>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+
+                            <div className="bg-slate-100 p-2 border-t border-slate-200">
+                                <div className="flex gap-2">
+                                    <button onClick={toggleDeckImages} className="flex-1 text-xs font-bold text-slate-600 bg-white border hover:bg-slate-50 py-2 rounded flex justify-center items-center gap-1 transition">
+                                        <Icon name={showDeckImages ? "chevron-up" : "image"} size={14} /> {showDeckImages ? "Hide Images" : "View Images"}
+                                    </button>
+                                    {showDeckImages && <button onClick={copyDeckList} className="px-4 text-xs font-bold text-indigo-600 bg-indigo-50 border border-indigo-100 hover:bg-indigo-100 py-2 rounded flex justify-center items-center gap-1 transition"><Icon name="copy" size={14} /> Copy Text</button>}
+                                </div>
+                                {showDeckImages && (
+                                    <div className="mt-2 p-2 bg-slate-200 rounded inner-shadow min-h-[100px]">
+                                        {loading && <div className="text-center text-xs text-slate-500 py-4">Loading cards...</div>}
+                                        {!loading && (
+                                            <div>
+                                                {imagesData.main.length > 0 && (
+                                                    <div className="mb-4">
+                                                        <h4 className="text-[10px] font-bold text-slate-500 uppercase mb-1 border-b border-slate-300 pb-1">Mainboard</h4>
+                                                        <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
+                                                            {imagesData.main.map((img, i) => (
+                                                                <div key={i} className="relative group">
+                                                                    <img src={img.url} className="w-full rounded shadow hover:scale-110 transition-transform z-0 hover:z-10" />
+                                                                    <span className="absolute bottom-0 right-0 bg-black/80 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-tl-lg rounded-br border-t border-l border-white/20 card-count-badge">×{img.count}</span>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                )}
+                                                {imagesData.side.length > 0 && (
+                                                    <div>
+                                                        <h4 className="text-[10px] font-bold text-slate-500 uppercase mb-1 border-b border-slate-300 pb-1">Sideboard</h4>
+                                                        <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
+                                                            {imagesData.side.map((img, i) => (
+                                                                <div key={i} className="relative group">
+                                                                    <img src={img.url} className="w-full rounded shadow hover:scale-110 transition-transform z-0 hover:z-10" />
+                                                                    <span className="absolute bottom-0 right-0 bg-black/80 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-tl-lg rounded-br border-t border-l border-white/20 card-count-badge">×{img.count}</span>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<MtgDiaryApp />);
+    </script>
+</body>
+</html>
