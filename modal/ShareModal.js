@@ -77,7 +77,7 @@ const ShareModal = ({ record, onClose }) => {
             // キャンセル時やエラー時
             console.error("Share failed or cancelled", err);
         } finally {
-            // ★修正: シェア処理が終わってもモーダルを閉じない（キャンセル時の"空白画面"対策）
+            // ★シェア処理終了後はフラグを下ろすのみ（モーダルは閉じない＝画面は残る）
             setIsSharing(false);
         }
     };
@@ -97,7 +97,8 @@ const ShareModal = ({ record, onClose }) => {
                 
                 <div className="p-6 bg-slate-200 overflow-auto flex-1 flex justify-center items-start">
                     <div ref={captureRef} className="w-[600px] min-w-[600px] bg-white p-8 rounded-xl shadow-lg text-slate-800 font-sans border border-slate-200 box-border">
-                        {/* Header: items-start -> items-center に変更して中央揃え */}
+                        
+                        {/* Header: items-center で垂直中央揃え */}
                         <div className="flex justify-between items-center mb-8">
                             <div>
                                 <div className="flex items-center gap-3 text-slate-500 text-sm font-bold mb-2">
@@ -110,9 +111,12 @@ const ShareModal = ({ record, onClose }) => {
                                 {record.eventWins}-{record.eventLosses}
                             </div>
                         </div>
+
+                        {/* Matches List */}
                         <div className="space-y-4">
                             {record.matches.map((match, i) => (
                                 <div key={i} className="border-2 border-slate-100 rounded-xl overflow-hidden">
+                                    {/* Match Header: items-center で垂直中央揃え */}
                                     <div className="bg-slate-50 border-b border-slate-100 px-5 py-3 flex justify-between items-center">
                                         <div className="flex items-center gap-3">
                                             <span className="bg-slate-800 text-white text-sm font-bold px-2.5 py-1 rounded">R{match.id}</span>
@@ -122,15 +126,17 @@ const ShareModal = ({ record, onClose }) => {
                                             {match.matchResult === 'win' ? 'WIN' : match.matchResult === 'loss' ? 'LOSS' : 'DRAW'}
                                         </span>
                                     </div>
+                                    
                                     <div className="bg-white p-4 space-y-2">
                                         {match.games.map((g, j) => {
                                             if (!g.result && !g.memo && g.onPlay === null) return null;
                                             const isWin = g.result === 'win';
                                             const isLoss = g.result === 'loss';
                                             return (
-                                                /* List Item: items-start -> items-center に変更して中央揃え */
+                                                /* Game Row: items-center で垂直中央揃え */
                                                 <div key={j} className="flex items-center gap-3 text-sm">
-                                                    <div className="flex flex-col gap-1 mt-0.5">
+                                                    {/* 先手後手: 余分なマージン(mt-0.5)を削除 */}
+                                                    <div className="flex flex-col gap-1">
                                                         {g.onPlay !== null && (
                                                             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded text-center border ${g.onPlay ? 'bg-orange-50 border-orange-200 text-orange-600' : 'bg-slate-100 border-slate-200 text-slate-500'}`}>
                                                                 {g.onPlay ? '先' : '後'}
