@@ -28,16 +28,12 @@ const ShareModal = ({ record, onClose }) => {
 
     const captureImage = async () => {
         if (!captureRef.current) return null;
-        // 画像生成時のズレを防ぐため、オプションを調整
+        // html2canvasの設定：スケールを上げて高画質化
         return await html2canvas(captureRef.current, { 
-            scale: 2, 
+            scale: 3, // スケールを少し上げてみる
             backgroundColor: "#ffffff",
             useCORS: true,
-            logging: false,
-            onclone: (document) => {
-                // キャプチャ時のみ、特定要素のスタイルを微調整することも可能
-                // 今回はCSSクラス側で対応済み
-            }
+            logging: false
         });
     };
 
@@ -69,7 +65,6 @@ const ShareModal = ({ record, onClose }) => {
                 const file = new File([blob], "result.png", { type: "image/png" });
                 
                 if (navigator.canShare({ files: [file] })) {
-                    // シェア実行
                     await navigator.share({
                         text: text,
                         files: [file]
@@ -83,7 +78,6 @@ const ShareModal = ({ record, onClose }) => {
         } catch (err) {
             console.error("Share failed or cancelled", err);
         } finally {
-            // シェア完了・キャンセル後はローディング状態のみ解除し、画面は残す
             setIsSharing(false);
         }
     };
@@ -104,18 +98,18 @@ const ShareModal = ({ record, onClose }) => {
                 <div className="p-6 bg-slate-200 overflow-auto flex-1 flex justify-center items-start">
                     <div ref={captureRef} className="w-[600px] min-w-[600px] bg-white p-8 rounded-xl shadow-lg text-slate-800 font-sans border border-slate-200 box-border">
                         
-                        {/* Header: tracking/leadingを削除し、flex centerで配置を安定化 */}
-                        <div className="flex justify-between items-center mb-8">
-                            <div className="flex flex-col justify-center">
-                                <div className="flex items-center gap-3 text-slate-500 text-sm font-bold mb-2">
-                                    <span className="flex items-center gap-1"><Icon name="calendar" size={16}/> {record.date}</span>
-                                    {record.location && <span className="bg-slate-100 px-2 py-0.5 rounded-full flex items-center gap-1 border border-slate-200"><Icon name="map-pin" size={14}/> {record.location}</span>}
+                        {/* Header */}
+                        <div className="flex justify-between items-stretch mb-8 h-20">
+                            <div className="flex flex-col justify-between">
+                                <div className="flex items-center gap-3 text-slate-500 text-sm font-bold">
+                                    <span className="flex items-center gap-1 h-6"><Icon name="calendar" size={16}/> {record.date}</span>
+                                    {record.location && <span className="bg-slate-100 px-2 rounded-full flex items-center gap-1 border border-slate-200 h-6"><Icon name="map-pin" size={14}/> {record.location}</span>}
                                 </div>
-                                {/* tracking-tight, leading-tight を削除 */}
-                                <h1 className="text-4xl font-black text-slate-900">{record.deckName}</h1>
+                                {/* デッキ名: flex items-end leading-none で下揃えつつ行間を詰める */}
+                                <h1 className="text-4xl font-black text-slate-900 flex items-end leading-none pb-1">{record.deckName}</h1>
                             </div>
-                            {/* スコア部分 */}
-                            <div className={`text-5xl font-black px-6 py-4 rounded-xl border-4 ${scoreColor} flex items-center justify-center`}>
+                            {/* スコア: h-full flex items-center justify-center leading-none で完全中央固定 */}
+                            <div className={`text-5xl font-black px-6 rounded-xl border-4 ${scoreColor} h-full flex items-center justify-center leading-none ml-4`}>
                                 {record.eventWins}-{record.eventLosses}
                             </div>
                         </div>
@@ -125,13 +119,12 @@ const ShareModal = ({ record, onClose }) => {
                             {record.matches.map((match, i) => (
                                 <div key={i} className="border-2 border-slate-100 rounded-xl overflow-hidden">
                                     {/* Match Header */}
-                                    <div className="bg-slate-50 border-b border-slate-100 px-5 py-3 flex justify-between items-center">
-                                        <div className="flex items-center gap-3">
-                                            <span className="bg-slate-800 text-white text-sm font-bold px-2.5 py-1 rounded">R{match.id}</span>
-                                            {/* tracking-tight を削除 */}
-                                            <span className="font-bold text-xl text-slate-700">{match.opponentDeck || "Unknown Deck"}</span>
+                                    <div className="bg-slate-50 border-b border-slate-100 px-5 py-3 flex justify-between items-center h-14">
+                                        <div className="flex items-center gap-3 h-full">
+                                            <span className="bg-slate-800 text-white text-sm font-bold px-2.5 rounded h-7 flex items-center justify-center leading-none">R{match.id}</span>
+                                            <span className="font-bold text-xl text-slate-700 h-full flex items-center leading-none">{match.opponentDeck || "Unknown Deck"}</span>
                                         </div>
-                                        <span className={`text-lg font-black uppercase ${match.matchResult === 'win' ? 'text-blue-600' : match.matchResult === 'loss' ? 'text-red-600' : 'text-slate-400'}`}>
+                                        <span className={`text-lg font-black uppercase h-full flex items-center leading-none ${match.matchResult === 'win' ? 'text-blue-600' : match.matchResult === 'loss' ? 'text-red-600' : 'text-slate-400'}`}>
                                             {match.matchResult === 'win' ? 'WIN' : match.matchResult === 'loss' ? 'LOSS' : 'DRAW'}
                                         </span>
                                     </div>
@@ -142,19 +135,22 @@ const ShareModal = ({ record, onClose }) => {
                                             const isWin = g.result === 'win';
                                             const isLoss = g.result === 'loss';
                                             return (
-                                                /* Game Row */
-                                                <div key={j} className="flex items-center gap-3 text-sm">
-                                                    <div className="flex items-center justify-center w-8">
+                                                /* Game Row: h-8 flex items-center で行の高さを固定し中央揃え */
+                                                <div key={j} className="flex items-center gap-3 text-sm h-8">
+                                                    {/* 先手後手: h-6 w-8 flex items-center justify-center leading-none */}
+                                                    <div className="flex items-center justify-center w-8 h-6">
                                                         {g.onPlay !== null && (
-                                                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded text-center border w-full ${g.onPlay ? 'bg-orange-50 border-orange-200 text-orange-600' : 'bg-slate-100 border-slate-200 text-slate-500'}`}>
+                                                            <span className={`text-[10px] font-bold px-1.5 rounded-sm text-center border w-full h-full flex items-center justify-center leading-none ${g.onPlay ? 'bg-orange-50 border-orange-200 text-orange-600' : 'bg-slate-100 border-slate-200 text-slate-500'}`}>
                                                                 {g.onPlay ? '先' : '後'}
                                                             </span>
                                                         )}
                                                     </div>
-                                                    <span className={`font-black font-mono w-6 text-center text-base flex justify-center items-center ${isWin ? 'text-blue-600' : isLoss ? 'text-red-600' : 'text-slate-300'}`}>
+                                                    {/* W/L/D: h-6 w-6 flex items-center justify-center leading-none */}
+                                                    <span className={`font-black font-mono w-6 h-6 text-center text-base flex justify-center items-center leading-none ${isWin ? 'text-blue-600' : isLoss ? 'text-red-600' : 'text-slate-300'}`}>
                                                         {isWin ? 'W' : isLoss ? 'L' : '-'}
                                                     </span>
-                                                    <span className="text-slate-600 flex-1 border-b border-slate-50 pb-1 text-base leading-normal">
+                                                    {/* メモ: h-full flex items-center */}
+                                                    <span className="text-slate-600 flex-1 border-b border-slate-50 h-full flex items-center text-sm truncate leading-none">
                                                         {g.memo || <span className="text-slate-300 italic text-xs">No memo</span>}
                                                     </span>
                                                 </div>
@@ -164,7 +160,7 @@ const ShareModal = ({ record, onClose }) => {
                                 </div>
                             ))}
                         </div>
-                        <div className="mt-8 pt-4 border-t border-slate-100 text-right text-slate-400 text-xs font-bold flex justify-end items-center gap-1 uppercase">
+                        <div className="mt-8 pt-4 border-t border-slate-100 text-right text-slate-400 text-xs font-bold flex justify-end items-center gap-1 uppercase h-8 leading-none">
                             <Icon name="pen-tool" size={12}/> MTG Battle Diary
                         </div>
                     </div>
@@ -175,7 +171,6 @@ const ShareModal = ({ record, onClose }) => {
                         <Icon name="download" /> 画像を保存
                     </button>
                     
-                    {/* スマホの場合のみXシェアボタンを表示 */}
                     {isMobile ? (
                         <button onClick={shareToX} disabled={isSharing} className="w-full bg-[#1DA1F2] hover:bg-[#1a91da] text-white font-bold py-3 rounded-lg shadow flex items-center justify-center gap-2 transition disabled:opacity-50">
                             {isSharing ? "準備中..." : <><Icon name="twitter" /> Xでシェア (画像付き)</>}
