@@ -155,6 +155,9 @@
             const [records, setRecords] = useState([]); 
             const [decks, setDecks] = useState({});
             
+            // UI State
+            const [showGuide, setShowGuide] = useState(false);
+
             // Form State
             const initialForm = {
                 date: new Date().toISOString().split('T')[0],
@@ -183,7 +186,7 @@
                 lucide.createIcons();
             }, []);
 
-            useEffect(() => { lucide.createIcons(); }, [view, records, deckDiff, formData.matches.length]);
+            useEffect(() => { lucide.createIcons(); }, [view, records, deckDiff, formData.matches.length, showGuide]);
 
             const saveToStorage = (newRecords, newDecks) => {
                 localStorage.setItem('mtg_records_v9', JSON.stringify(newRecords));
@@ -427,6 +430,37 @@
                         {/* === Home (Deck Selector) === */}
                         {view === 'list' && (
                             <div className="mb-8">
+                                {/* === Usage Guide (Collapsible) === */}
+                                <div className="bg-white rounded-xl shadow-sm border border-blue-100 p-4 mb-6">
+                                    <button 
+                                        onClick={() => setShowGuide(!showGuide)} 
+                                        className="w-full flex justify-between items-center text-slate-700 font-bold text-sm"
+                                    >
+                                        <div className="flex items-center gap-2">
+                                            <div className="bg-blue-100 text-blue-600 p-1.5 rounded-full"><Icon name="help-circle" size={16}/></div>
+                                            このアプリの使い方
+                                        </div>
+                                        <Icon name={showGuide ? "chevron-up" : "chevron-down"} size={16} className="text-slate-400"/>
+                                    </button>
+                                    
+                                    {showGuide && (
+                                        <div className="mt-3 pt-3 border-t border-slate-100 text-xs leading-relaxed text-slate-600 space-y-2 animate-fade-in">
+                                            <div className="flex gap-2">
+                                                <span className="font-bold text-blue-600 whitespace-nowrap">Step 1</span>
+                                                <p>「New Deck」または既存のデッキを選択して、新しいイベント(大会や調整会)の記録を開始します。</p>
+                                            </div>
+                                            <div className="flex gap-2">
+                                                <span className="font-bold text-blue-600 whitespace-nowrap">Step 2</span>
+                                                <p>対戦相手のアーキタイプ、ゲームごとの勝敗・先手後手・メモを入力します。<br/>デッキリストを貼り付けると、画像のプレビューや前回リストとの差分(IN/OUT)が自動計算されます。</p>
+                                            </div>
+                                            <div className="flex gap-2">
+                                                <span className="font-bold text-blue-600 whitespace-nowrap">Step 3</span>
+                                                <p>保存すると履歴に追加されます。デッキごとの戦績確認や、JSONファイルへのバックアップ(Export/Import)が可能です。</p>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+
                                 <h2 className="text-sm font-bold text-slate-500 uppercase mb-3 flex items-center gap-1">
                                     <Icon name="play-circle" size={16} /> Start New Event
                                 </h2>
