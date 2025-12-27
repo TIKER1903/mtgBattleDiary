@@ -34,7 +34,6 @@
     <script type="text/babel">
         const { useState, useEffect, useRef, useMemo } = React;
 
-        // ShareModal.js で定義されたコンポーネントをグローバルから取得
         const ShareModal = window.ShareModal;
         const Icon = window.Icon; 
 
@@ -189,7 +188,6 @@
                 
                 records.forEach(r => {
                     const name = r.deckName;
-                    // デッキリストに存在しないが履歴にある場合も考慮
                     if (!stats[name]) stats[name] = { matchWins: 0, matchLosses: 0, matchDraws: 0, totalMatches: 0, format: r.format || 'Unknown' };
                     
                     r.matches.forEach(m => {
@@ -354,9 +352,6 @@
                 setDeckImagesData({ main: [], side: [] });
             };
 
-            // --- Deck Management Functions ---
-            
-            // 履歴データのエクスポート
             const exportDeckHistory = (e, deckName) => {
                 e.stopPropagation();
                 const targetRecords = records.filter(r => r.deckName === deckName);
@@ -375,7 +370,6 @@
                 document.body.removeChild(link);
             };
 
-            // デッキの削除（リストから削除するが、履歴は残す）
             const deleteDeck = (e, deckName) => {
                 e.stopPropagation();
                 if(!window.confirm(`デッキ「${deckName}」をデッキリストから削除しますか？\n(過去の対戦履歴は保持されます)`)){
@@ -387,7 +381,6 @@
                 localStorage.setItem('mtg_decks_v9', JSON.stringify(updatedDecks));
             };
 
-            // デッキ名の変更（履歴も一括更新する）
             const renameDeck = (e, oldName) => {
                 e.stopPropagation();
                 const newName = window.prompt("新しいデッキ名を入力してください:\n(※注意: 過去の対戦履歴のデッキ名も全てこの名前に更新されます)", oldName);
@@ -398,12 +391,10 @@
                     return;
                 }
 
-                // 1. Decksオブジェクトのキーを変更
                 const updatedDecks = { ...decks };
-                updatedDecks[newName] = updatedDecks[oldName]; // 内容をコピー
-                delete updatedDecks[oldName]; // 古いキーを削除
+                updatedDecks[newName] = updatedDecks[oldName]; 
+                delete updatedDecks[oldName]; 
 
-                // 2. RecordsのdeckNameを一括置換
                 const updatedRecords = records.map(r => 
                     r.deckName === oldName ? { ...r, deckName: newName } : r
                 );
@@ -480,7 +471,6 @@
                                     )}
                                 </div>
 
-                                {/* ★修正: Start New Deckに変更 */}
                                 <h2 className="text-sm font-bold text-slate-500 uppercase mb-3 flex items-center gap-1">
                                     <Icon name="layers" size={16} /> Start New Deck
                                 </h2>
@@ -496,11 +486,13 @@
                                                 <button onClick={() => startNewEvent(dName, decks[dName])}
                                                     className="w-full h-full bg-white border border-slate-200 p-3 rounded-xl shadow-sm hover:shadow-md hover:border-blue-300 hover:bg-blue-50 transition text-left group flex flex-col justify-between min-h-[100px]">
                                                     <div>
-                                                        <div className="flex justify-between items-start">
-                                                            <div className="text-[10px] text-slate-400 mb-1">Use Deck:</div>
-                                                            <div className="text-[9px] uppercase font-bold text-slate-400 bg-slate-100 px-1 rounded">{deckFormat}</div>
+                                                        {/* ★修正: フォーマット表示を左寄せ・Use Deckの隣に変更して右上のアイコンと被らないようにする */}
+                                                        <div className="flex items-center gap-2 mb-1">
+                                                            <div className="text-[10px] text-slate-400">Use Deck:</div>
+                                                            <div className="text-[9px] uppercase font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200 leading-none">{deckFormat}</div>
                                                         </div>
-                                                        <div className="font-bold text-slate-800 text-sm truncate group-hover:text-blue-700 pr-4">{dName}</div>
+                                                        {/* 右側に余白(pr-12)を設けてアイコンとの重なりを防止 */}
+                                                        <div className="font-bold text-slate-800 text-sm truncate group-hover:text-blue-700 pr-12">{dName}</div>
                                                     </div>
                                                     <div className="mt-2 pt-2 border-t border-slate-100 flex justify-between items-end">
                                                         <div className="text-[10px] text-slate-500 font-mono">
@@ -513,7 +505,6 @@
                                                     </div>
                                                 </button>
                                                 
-                                                {/* ★修正: デッキ管理用ボタン群 (削除、リネーム、エクスポート) */}
                                                 <div className="absolute top-2 right-2 flex gap-1 z-10">
                                                     <button onClick={(e) => renameDeck(e, dName)} 
                                                         className="text-slate-300 hover:text-blue-600 p-1 rounded hover:bg-blue-100 transition"
