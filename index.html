@@ -86,7 +86,7 @@
             "Standard", "Pioneer", "Modern", "Legacy", "Vintage", "Pauper", "Commander", "Limited", "Other"
         ];
         
-        const STORAGE_KEY_RECORDS = 'mtg_records_v11'; // バージョンアップ
+        const STORAGE_KEY_RECORDS = 'mtg_records_v11';
         const STORAGE_KEY_DECKS = 'mtg_decks_v11';
 
         // --- Helper: Utilities ---
@@ -148,7 +148,6 @@
             const promises = uniqueNames.map(async (cardName) => {
                 try {
                     let imageUrl = null;
-                    // 単純なファジー検索のみを実行
                     let res = await fetch(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(cardName)}`);
                     
                     if (res.ok) {
@@ -216,12 +215,12 @@
             
             // フィルター・ソート用のState
             const [sortOrder, setSortOrder] = useState('dateDesc'); 
-            const [filterFormat, setFilterFormat] = useState('All'); // フォーマットフィルター
+            const [filterFormat, setFilterFormat] = useState('All');
 
             const initialForm = {
                 date: new Date().toISOString().split('T')[0],
-                eventName: '', // 追加：イベント名
-                eventOrder: 1, // 追加：同日内ナンバリング
+                eventName: '', 
+                eventOrder: 1, 
                 location: '', 
                 deckId: null, 
                 deckName: '',
@@ -248,14 +247,26 @@
                     setRecords(JSON.parse(savedRecords));
                     setDecks(JSON.parse(savedDecks));
                 } else {
-                    // 旧バージョンからの移行ロジック（必要に応じて）
-                    const oldRecords = JSON.parse(localStorage.getItem('mtg_records_v10') || '[]');
-                    const oldDecks = JSON.parse(localStorage.getItem('mtg_decks_v10') || '{}');
-                    if (oldRecords.length > 0 || Object.keys(oldDecks).length > 0) {
-                        setRecords(oldRecords);
-                        setDecks(oldDecks);
-                        localStorage.setItem(STORAGE_KEY_RECORDS, JSON.stringify(oldRecords));
-                        localStorage.setItem(STORAGE_KEY_DECKS, JSON.stringify(oldDecks));
+                    const v9Records = JSON.parse(localStorage.getItem('mtg_records_v9') || '[]');
+                    const v9Decks = JSON.parse(localStorage.getItem('mtg_decks_v9') || '{}');
+                    // v10もあれば取得
+                    const v10Records = JSON.parse(localStorage.getItem('mtg_records_v10') || '[]');
+                    const v10Decks = JSON.parse(localStorage.getItem('mtg_decks_v10') || '{}');
+
+                    const initRecords = v10Records.length > 0 ? v10Records : v9Records;
+                    const initDecks = Object.keys(v10Decks).length > 0 ? v10Decks : v9Decks;
+
+                    if (initRecords.length > 0 || Object.keys(initDecks).length > 0) {
+                        // 新規ユーザーやv9ユーザー向けのマイグレーション処理（簡易）
+                        let newDecks = { ...initDecks };
+                        if (Object.keys(initDecks).length === 0 && initRecords.length > 0) {
+                             // Deck情報がない場合の再構築ロジック等は省略
+                        }
+                        
+                        setRecords(initRecords);
+                        setDecks(newDecks);
+                        localStorage.setItem(STORAGE_KEY_RECORDS, JSON.stringify(initRecords));
+                        localStorage.setItem(STORAGE_KEY_DECKS, JSON.stringify(newDecks));
                     }
                 }
                 if (window.lucide) window.lucide.createIcons();
@@ -299,7 +310,7 @@
                     processed.sort((a, b) => {
                         const dateDiff = new Date(b.date) - new Date(a.date);
                         if (dateDiff !== 0) return dateDiff;
-                        // 日付が同じ場合は eventOrder の降順 (大きい番号が上に来る想定、または昇順でも可。ここでは降順)
+                        // 日付が同じ場合は eventOrder の降順
                         const orderDiff = (b.eventOrder || 0) - (a.eventOrder || 0);
                         if (orderDiff !== 0) return orderDiff;
                         return b.id - a.id;
@@ -348,8 +359,8 @@
             const startEditEvent = (record) => {
                 setFormData(JSON.parse(JSON.stringify({
                     date: record.date,
-                    eventName: record.eventName || '', // イベント名
-                    eventOrder: record.eventOrder || 1, // ナンバリング
+                    eventName: record.eventName || '', 
+                    eventOrder: record.eventOrder || 1, 
                     location: record.location,
                     deckId: record.deckId,
                     deckName: record.deckName,
@@ -440,8 +451,8 @@
 
                 const recordData = {
                     date: formData.date,
-                    eventName: formData.eventName, // 保存
-                    eventOrder: parseInt(formData.eventOrder) || 1, // 保存
+                    eventName: formData.eventName, 
+                    eventOrder: parseInt(formData.eventOrder) || 1, 
                     location: formData.location,
                     deckId: targetDeckId,     
                     deckName: formData.deckName, 
@@ -500,6 +511,26 @@
                 document.body.removeChild(link);
             };
 
+            // 全データのバックアップ（エクスポート）
+            const handleExportAllData = () => {
+                const dataToExport = {
+                    version: 1,
+                    type: 'full_backup',
+                    timestamp: new Date().toISOString(),
+                    decks: decks,
+                    records: records
+                };
+                const dataStr = JSON.stringify(dataToExport, null, 2);
+                const blob = new Blob([dataStr], { type: "application/json" });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `mtg_diary_backup_all_${new Date().toISOString().split('T')[0]}.json`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            };
+
             const deleteDeck = (e, deckId) => {
                 e.stopPropagation();
                 const deckName = decks[deckId]?.name;
@@ -547,43 +578,79 @@
                 const reader = new FileReader();
                 reader.onload = (event) => {
                     try {
-                        const importedRecords = JSON.parse(event.target.result);
-                        if (!Array.isArray(importedRecords)) { alert("Invalid file format."); return; }
+                        const json = JSON.parse(event.target.result);
                         
                         let newRecords = [...records];
-                        let updatedCount = 0, addedCount = 0;
                         let newDecks = { ...decks };
-                        const importMapOldIdToNewId = {};
+                        let updatedCount = 0, addedCount = 0, deckAddedCount = 0;
 
-                        importedRecords.forEach(impRec => {
-                            const existingIdx = newRecords.findIndex(r => r.id === impRec.id);
-                            let targetDeckId = null;
-                            if (impRec.deckId && importMapOldIdToNewId[impRec.deckId]) {
-                                targetDeckId = importMapOldIdToNewId[impRec.deckId];
-                            } else {
-                                targetDeckId = generateId();
-                                if (impRec.deckId) importMapOldIdToNewId[impRec.deckId] = targetDeckId;
-                                
-                                if (impRec.deckName && impRec.deckListText) {
-                                    newDecks[targetDeckId] = {
-                                        id: targetDeckId,
-                                        name: impRec.deckName,
-                                        text: impRec.deckListText,
-                                        parsed: parseDeckListForDiff(impRec.deckListText),
-                                        format: impRec.format || 'Modern'
-                                    };
-                                }
+                        // Case A: 全データバックアップ形式（オブジェクトかつdecks/recordsが存在）
+                        if (!Array.isArray(json) && json.decks && json.records) {
+                            if(!window.confirm(`全データのインポートを開始します。\nデッキ: ${Object.keys(json.decks).length}件, 履歴: ${json.records.length}件\n既存のデータに追加しますか？`)) {
+                                e.target.value = ''; 
+                                return; 
                             }
-                            const recordToSave = { ...impRec, deckId: targetDeckId };
-                            if (existingIdx > -1) { newRecords[existingIdx] = recordToSave; updatedCount++; } 
-                            else { newRecords.push(recordToSave); addedCount++; }
-                        });
 
+                            const importMapId = {};
+                            
+                            // 1. デッキを取り込み（ID衝突回避のため新規ID発行）
+                            Object.values(json.decks).forEach(d => {
+                                const newId = generateId();
+                                importMapId[d.id] = newId;
+                                newDecks[newId] = { ...d, id: newId };
+                                deckAddedCount++;
+                            });
+
+                            // 2. 履歴を取り込み（デッキIDを変換）
+                            json.records.forEach(r => {
+                                const targetDeckId = importMapId[r.deckId] || r.deckId; 
+                                // IDも新規発行して完全に追加として扱う
+                                const recordToSave = { ...r, id: Date.now() + Math.random(), deckId: targetDeckId };
+                                newRecords.push(recordToSave);
+                                addedCount++;
+                            });
+
+                        } 
+                        // Case B: 従来の履歴配列のみ
+                        else if (Array.isArray(json)) {
+                            const importMapOldIdToNewId = {};
+                            json.forEach(impRec => {
+                                const existingIdx = newRecords.findIndex(r => r.id === impRec.id);
+                                let targetDeckId = null;
+                                if (impRec.deckId && importMapOldIdToNewId[impRec.deckId]) {
+                                    targetDeckId = importMapOldIdToNewId[impRec.deckId];
+                                } else {
+                                    targetDeckId = generateId();
+                                    if (impRec.deckId) importMapOldIdToNewId[impRec.deckId] = targetDeckId;
+                                    
+                                    if (impRec.deckName && impRec.deckListText) {
+                                        newDecks[targetDeckId] = {
+                                            id: targetDeckId,
+                                            name: impRec.deckName,
+                                            text: impRec.deckListText,
+                                            parsed: parseDeckListForDiff(impRec.deckListText),
+                                            format: impRec.format || 'Modern'
+                                        };
+                                        deckAddedCount++; // 間接的に追加されたデッキ数
+                                    }
+                                }
+                                const recordToSave = { ...impRec, deckId: targetDeckId };
+                                if (existingIdx > -1) { newRecords[existingIdx] = recordToSave; updatedCount++; } 
+                                else { newRecords.push(recordToSave); addedCount++; }
+                            });
+                        } else {
+                            alert("Invalid file format.");
+                            e.target.value = ''; 
+                            return;
+                        }
+
+                        // 保存
                         newRecords.sort((a, b) => b.id - a.id);
                         setRecords(newRecords);
                         setDecks(newDecks);
                         saveToStorage(newRecords, newDecks);
-                        alert(`インポート完了\n更新: ${updatedCount}件\n追加: ${addedCount}件`);
+                        alert(`インポート完了\nデッキ追加: ${deckAddedCount}件\n履歴追加: ${addedCount}件\n更新: ${updatedCount}件`);
+
                     } catch (err) { alert("Error parsing JSON file."); console.error(err); }
                     e.target.value = ''; 
                 };
@@ -712,10 +779,14 @@
                                     </button>
                                 </div>
                                 
-                                <div className="flex justify-end mt-2">
+                                <div className="flex justify-end items-center mt-2 gap-2">
                                     <input type="file" ref={fileInputRef} onChange={handleImportFile} className="hidden" accept=".json" />
+                                    <button onClick={handleExportAllData} className="text-xs font-bold text-slate-400 hover:text-slate-600 flex items-center gap-1">
+                                        <Icon name="download" size={12} /> 全データのバックアップ (Export)
+                                    </button>
+                                    <span className="text-slate-300">|</span>
                                     <button onClick={triggerImport} className="text-xs font-bold text-slate-400 hover:text-slate-600 flex items-center gap-1">
-                                        <Icon name="upload" size={12} /> 履歴データの取り込み (JSON)
+                                        <Icon name="upload" size={12} /> 履歴データの取り込み (Import)
                                     </button>
                                 </div>
                             </div>
