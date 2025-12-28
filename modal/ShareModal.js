@@ -33,10 +33,8 @@ const ShareModal = ({ records, onClose }) => {
         if (!captureRef.current) return null;
         
         const element = captureRef.current;
-        // スクロールが必要な要素全体のサイズを取得
         const { scrollWidth, scrollHeight } = element;
 
-        // html2canvasの設定
         return await html2canvas(element, { 
             scale: 2, 
             backgroundColor: "#ffffff",
@@ -47,11 +45,11 @@ const ShareModal = ({ records, onClose }) => {
             windowWidth: scrollWidth,
             windowHeight: scrollHeight,
             onclone: (clonedDoc) => {
-                // 画像化時に文字切れを防ぐためのスタイル調整（念のため）
-                const clonedElement = clonedDoc.querySelector('[data-capture-target]');
-                if (clonedElement) {
-                    clonedElement.style.height = 'auto';
-                    clonedElement.style.overflow = 'visible';
+                // 画像化時に高さ制限などで文字が切れないようにスタイルを強制調整
+                const target = clonedDoc.querySelector('[data-capture-target]');
+                if (target) {
+                    target.style.height = 'auto';
+                    target.style.overflow = 'visible';
                 }
             }
         });
@@ -108,12 +106,12 @@ const ShareModal = ({ records, onClose }) => {
         }
     };
 
-    // --- レイアウトコンポーネント: マッチ詳細リスト (共通化) ---
+    // --- レイアウトパーツ: マッチ詳細リスト (R1, R2...の表示) ---
     const MatchesDetailList = ({ matches }) => {
         return (
-            <div className="space-y-3">
+            <div className="space-y-3 mt-3">
                 {matches.map((match, i) => (
-                    <div key={i} className="border border-slate-200 rounded-lg overflow-hidden bg-white">
+                    <div key={i} className="border border-slate-200 rounded-lg overflow-hidden bg-white shadow-sm">
                         {/* Match Header */}
                         <div className="bg-slate-50 border-b border-slate-100 px-4 py-2 flex justify-between items-center">
                             <div className="flex items-center gap-2">
@@ -156,7 +154,7 @@ const ShareModal = ({ records, onClose }) => {
         );
     };
 
-    // --- レイアウト 1: 単一レコード用 (詳細) ---
+    // --- レイアウト 1: 単一レコード用 ---
     const SingleRecordView = ({ record }) => {
         const scoreColor = record.eventWins > record.eventLosses ? 'text-blue-600 bg-blue-50 border-blue-100' : 
                            record.eventLosses > record.eventWins ? 'text-red-600 bg-red-50 border-red-100' : 'text-slate-600 bg-slate-100';
@@ -164,7 +162,7 @@ const ShareModal = ({ records, onClose }) => {
         return (
             <div className="w-[600px] min-w-[600px] bg-white p-8 rounded-xl shadow-lg text-slate-800 font-sans border border-slate-200 box-border" data-capture-target>
                 {/* Header */}
-                <div className="flex justify-between items-stretch mb-8">
+                <div className="flex justify-between items-stretch mb-6">
                     <div className="flex flex-col justify-between gap-2">
                         <div className="flex items-center gap-3 text-slate-500 text-sm font-bold">
                             <span className="flex items-center gap-1"><Icon name="calendar" size={16}/> {record.date}</span>
@@ -187,7 +185,7 @@ const ShareModal = ({ records, onClose }) => {
         );
     };
 
-    // --- レイアウト 2: 複数レコード用 (詳細リスト形式) ---
+    // --- レイアウト 2: 複数レコード用 (詳細展開版) ---
     const MultiRecordView = ({ records }) => {
         const totalWins = records.reduce((acc, r) => acc + r.eventWins, 0);
         const totalLosses = records.reduce((acc, r) => acc + r.eventLosses, 0);
@@ -214,7 +212,7 @@ const ShareModal = ({ records, onClose }) => {
                     </div>
                 </div>
 
-                {/* Records Detail List */}
+                {/* Records List (詳細込み) */}
                 <div className="space-y-8">
                     {records.map((rec, idx) => {
                         const scoreColor = rec.eventWins > rec.eventLosses ? 'text-blue-600 bg-blue-50 border-blue-100' : 
@@ -222,8 +220,8 @@ const ShareModal = ({ records, onClose }) => {
                         
                         return (
                             <div key={idx} className="break-inside-avoid">
-                                {/* Sub Header for Record */}
-                                <div className="flex justify-between items-center mb-3">
+                                {/* Deck Info Header */}
+                                <div className="flex justify-between items-center mb-1">
                                     <div>
                                         <div className="flex items-center gap-2 text-[10px] font-bold text-slate-500 uppercase mb-1">
                                             <span className="flex items-center gap-1"><Icon name="calendar" size={12}/> {rec.date}</span>
@@ -237,7 +235,7 @@ const ShareModal = ({ records, onClose }) => {
                                     </div>
                                 </div>
 
-                                {/* Match Details */}
+                                {/* 詳細リスト (R1, R2...を展開表示) */}
                                 <MatchesDetailList matches={rec.matches} />
                             </div>
                         );
@@ -263,7 +261,6 @@ const ShareModal = ({ records, onClose }) => {
                 </div>
                 
                 <div className="p-6 bg-slate-200 overflow-auto flex-1 flex justify-center items-start">
-                    {/* キャプチャ対象エリア */}
                     <div ref={captureRef}>
                         {isMulti ? <MultiRecordView records={records} /> : <SingleRecordView record={singleRecord} />}
                     </div>
