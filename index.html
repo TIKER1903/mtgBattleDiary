@@ -1048,51 +1048,53 @@ Deck
 
             return (
                 <div className={`bg-white rounded-xl shadow-sm border overflow-hidden hover:shadow-md transition relative ${isSelected ? 'border-blue-400 ring-2 ring-blue-100' : 'border-slate-200'}`}>
-                    <div className="p-4 cursor-pointer bg-gradient-to-r from-white to-slate-50 hover:bg-slate-50 transition" onClick={(e) => { if(isSelectionMode) onSelect(e); else setExpanded(!expanded); }}>
-                        <div className="flex justify-between items-start">
-                            <div className="flex gap-3 w-full">
-                                {isSelectionMode && (
-                                    <div className="flex items-center justify-center shrink-0 pt-1">
-                                        <div className={`w-5 h-5 rounded border flex items-center justify-center transition ${isSelected ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-slate-300 text-transparent'}`}>
-                                            <Icon name="check" size={14} />
-                                        </div>
+                    <div className="p-3 sm:p-4 cursor-pointer bg-gradient-to-r from-white to-slate-50 hover:bg-slate-50 transition" onClick={(e) => { if(isSelectionMode) onSelect(e); else setExpanded(!expanded); }}>
+                        <div className="flex gap-3">
+                            {isSelectionMode && (
+                                <div className="flex items-center justify-center shrink-0 pt-1">
+                                    <div className={`w-5 h-5 rounded border flex items-center justify-center transition ${isSelected ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-slate-300 text-transparent'}`}>
+                                        <Icon name="check" size={14} />
                                     </div>
-                                )}
-                                <div className="pr-4 flex-1">
-                                    <div className="flex flex-wrap gap-2 text-xs text-slate-500 font-bold mb-1 items-center">
+                                </div>
+                            )}
+                            
+                            <div className="flex-1 min-w-0">
+                                {/* Top Row: Meta Tags & Edit Button */}
+                                <div className="flex justify-between items-start mb-1">
+                                    <div className="flex flex-wrap gap-2 text-xs text-slate-500 font-bold items-center pr-2">
                                         <span className="flex items-center gap-1"><Icon name="calendar" size={12}/> {record.date}</span>
-                                        {/* イベント名がある場合表示 */}
                                         {record.eventName && <span className="flex items-center gap-1 bg-yellow-100 text-yellow-700 px-1.5 rounded"><Icon name="flag" size={12}/> {record.eventName}</span>}
-                                        {/* ナンバリングがある場合表示 */}
                                         {record.eventOrder && <span className="flex items-center gap-1 bg-slate-200 text-slate-600 px-1.5 rounded">#{record.eventOrder}</span>}
-                                        
                                         <span className="bg-slate-200 text-slate-600 px-2 py-0.5 rounded text-[10px] font-bold uppercase">{record.format || 'MODERN'}</span>
                                         {record.location && <span className="flex items-center gap-1 bg-white border px-1.5 rounded"><Icon name="map-pin" size={12}/> {record.location}</span>}
                                     </div>
-                                    <h3 className="font-bold text-lg text-slate-800 break-words">{record.deckName}</h3>
-                                    {record.diffSnapshot && (
-                                        <div className="text-[10px] mt-1 flex flex-wrap gap-2">
-                                            {record.diffSnapshot.in.length > 0 && <span className="text-green-600 flex items-center gap-1">In: {record.diffSnapshot.in.map(c => `${c.count} ${c.name}`).join(", ")}</span>}
-                                            {record.diffSnapshot.out.length > 0 && <span className="text-red-500 flex items-center gap-1">Out: {record.diffSnapshot.out.map(c => `${c.count} ${c.name}`).join(", ")}</span>}
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                            
-                            <div className="flex flex-col items-end gap-3 shrink-0">
-                                <div className="flex gap-2">
+                                    
                                     {!isSelectionMode && (
                                         <button 
                                             onClick={(e) => { e.stopPropagation(); onEdit(); }}
-                                            className="text-slate-400 hover:text-blue-500 transition p-1.5 rounded-full hover:bg-blue-50 border border-transparent hover:border-blue-100"
+                                            className="text-slate-400 hover:text-blue-500 transition p-1 rounded-full hover:bg-blue-50 border border-transparent hover:border-blue-100 shrink-0 -mt-1 -mr-1"
                                             title="Edit Record"
                                         >
-                                            <Icon name="pencil" size={16} />
+                                            <Icon name="pencil" size={14} />
                                         </button>
                                     )}
                                 </div>
-                                <div className={`text-xl font-black px-3 py-1 rounded border ${scoreColor}`}>
-                                    {record.eventWins}-{record.eventLosses}
+
+                                {/* Bottom Row: Deck Name & Score */}
+                                <div className="flex justify-between items-center gap-3">
+                                    <div className="flex-1">
+                                        <h3 className="font-bold text-lg text-slate-800 break-words leading-tight">{record.deckName}</h3>
+                                        {record.diffSnapshot && (
+                                            <div className="text-[10px] mt-1 flex flex-wrap gap-2">
+                                                {record.diffSnapshot.in.length > 0 && <span className="text-green-600 flex items-center gap-1">In: {record.diffSnapshot.in.map(c => `${c.count} ${c.name}`).join(", ")}</span>}
+                                                {record.diffSnapshot.out.length > 0 && <span className="text-red-500 flex items-center gap-1">Out: {record.diffSnapshot.out.map(c => `${c.count} ${c.name}`).join(", ")}</span>}
+                                            </div>
+                                        )}
+                                    </div>
+                                    
+                                    <div className={`text-xl font-black px-3 py-1 rounded border shrink-0 ${scoreColor}`}>
+                                        {record.eventWins}-{record.eventLosses}
+                                    </div>
                                 </div>
                             </div>
                         </div>
