@@ -32,24 +32,31 @@ const ShareModal = ({ records, onClose }) => {
     const captureImage = async () => {
         if (!captureRef.current) return null;
         
+        // 少し待ってから実行（アイコン等のレンダリング待ち）
+        await new Promise(resolve => setTimeout(resolve, 100));
+
         const element = captureRef.current;
-        const { scrollWidth, scrollHeight } = element;
+        
+        // 余白を含めたサイズを正確に取得
+        const width = element.offsetWidth;
+        const height = element.offsetHeight;
 
         return await html2canvas(element, { 
             scale: 2, 
             backgroundColor: "#ffffff",
             useCORS: true,
             logging: false,
-            width: scrollWidth,
-            height: scrollHeight,
-            windowWidth: scrollWidth,
-            windowHeight: scrollHeight,
+            width: width,
+            height: height,
+            windowWidth: width,
+            windowHeight: height,
             onclone: (clonedDoc) => {
-                // 画像化時に高さ制限などで文字が切れないようにスタイルを強制調整
+                // 画像化時に文字切れを防ぐためのスタイル調整
                 const target = clonedDoc.querySelector('[data-capture-target]');
                 if (target) {
                     target.style.height = 'auto';
                     target.style.overflow = 'visible';
+                    target.style.width = 'fit-content';
                 }
             }
         });
@@ -73,7 +80,6 @@ const ShareModal = ({ records, onClose }) => {
         }
     };
 
-    // スマホ専用: Web Share API (単一選択時のみ有効)
     const shareToX = async () => {
         if (isMulti) return;
 
@@ -106,12 +112,12 @@ const ShareModal = ({ records, onClose }) => {
         }
     };
 
-    // --- レイアウトパーツ: マッチ詳細リスト (R1, R2...の表示) ---
+    // --- 詳細リストコンポーネント ---
     const MatchesDetailList = ({ matches }) => {
         return (
             <div className="space-y-3 mt-3">
                 {matches.map((match, i) => (
-                    <div key={i} className="border border-slate-200 rounded-lg overflow-hidden bg-white shadow-sm">
+                    <div key={i} className="border border-slate-200 rounded-lg overflow-hidden bg-white shadow-sm break-inside-avoid">
                         {/* Match Header */}
                         <div className="bg-slate-50 border-b border-slate-100 px-4 py-2 flex justify-between items-center">
                             <div className="flex items-center gap-2">
@@ -160,7 +166,7 @@ const ShareModal = ({ records, onClose }) => {
                            record.eventLosses > record.eventWins ? 'text-red-600 bg-red-50 border-red-100' : 'text-slate-600 bg-slate-100';
 
         return (
-            <div className="w-[600px] min-w-[600px] bg-white p-8 rounded-xl shadow-lg text-slate-800 font-sans border border-slate-200 box-border" data-capture-target>
+            <div className="w-[600px] bg-white p-8 rounded-xl shadow-lg text-slate-800 font-sans border border-slate-200 box-border">
                 {/* Header */}
                 <div className="flex justify-between items-stretch mb-6">
                     <div className="flex flex-col justify-between gap-2">
@@ -192,7 +198,7 @@ const ShareModal = ({ records, onClose }) => {
         const totalDraws = records.reduce((acc, r) => acc + r.eventDraws, 0);
 
         return (
-            <div className="w-[600px] min-w-[600px] bg-white p-8 rounded-xl shadow-lg text-slate-800 font-sans border border-slate-200 box-border" data-capture-target>
+            <div className="w-[600px] bg-white p-8 rounded-xl shadow-lg text-slate-800 font-sans border border-slate-200 box-border">
                 {/* Header */}
                 <div className="flex justify-between items-end mb-8 pb-4 border-b-2 border-slate-100">
                     <div>
@@ -251,7 +257,7 @@ const ShareModal = ({ records, onClose }) => {
 
     return (
         <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 overflow-y-auto backdrop-blur-sm">
-            <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full overflow-hidden animate-fade-in flex flex-col max-h-[90vh]">
+            <div className="bg-white rounded-xl shadow-2xl max-w-3xl w-full overflow-hidden animate-fade-in flex flex-col max-h-[90vh]">
                 <div className="p-4 border-b flex justify-between items-center bg-slate-50 shrink-0">
                     <h3 className="font-bold text-slate-700 flex items-center gap-2">
                         <Icon name="share-2" size={18}/> 
@@ -261,7 +267,11 @@ const ShareModal = ({ records, onClose }) => {
                 </div>
                 
                 <div className="p-6 bg-slate-200 overflow-auto flex-1 flex justify-center items-start">
-                    <div ref={captureRef}>
+                    {/* 文字切れ対策: 
+                        キャプチャ対象の周りにp-8のパディングを持つ白いコンテナ(width: fit-content)を配置。
+                        これにより、html2canvasが端のピクセルを切り落とすのを防ぐ。
+                    */}
+                    <div className="inline-block bg-white p-8" ref={captureRef} data-capture-target>
                         {isMulti ? <MultiRecordView records={records} /> : <SingleRecordView record={singleRecord} />}
                     </div>
                 </div>
